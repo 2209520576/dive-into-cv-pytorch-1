@@ -30,33 +30,210 @@ MNIST手写体数字识别是一个识别任务，同时也可以说是一个分
 
 ## 全连接神经网络实现MNIST分类
 
-### 数据加载及网络输入
+### 导入相关库
+首先导入numpy、torch等模块。
 
-首先是数据准备和加载，准备好喂给神经网络的数据。为了简单直观，我们就以MNIST数据集中图像的像素值作为特征进行输入，MNIST图像的维度是28 x 28 x 1=784，所以，直接将28 x 28的像素值展开平铺为 784 x 1的数据输入给输入层，所以输入层的神经节点是784个。        
+```python
+
+import torch
+import torch.nn as nn
+import numpy as np
+from torch import optim
+from torch.autograd import Variable
+from torch.utils.data import DataLoader
+from torchvision.datasets import mnist
+from torchvision import transforms
+import matplotlib.pyplot as plt
+
+```
+
+### 全连接网络构建    
+
+在这里，我们构建了输入层、四层全连接层和输出层，输入层的节点个数为784,FC1的节点个数为512,FC2的节点个数为256,FC3的节点个数为128,输出层的节点个数是10（分类10个数）。每个全连接层后都接一个
+激活函数，这里激活函数选用Relu。
+```python
+
+#定义网络结构
+class Net(nn.Module):
+    def __init__(self, in_c=784, out_c=10):
+        super(Net, self).__init__()
+        
+        # 定义全连接层
+        self.fc1 = nn.Linear(in_c, 512)
+        # 定义激活层
+        self.act1 = nn.ReLU(inplace=True)
+
+        self.fc2 = nn.Linear(512, 256)
+        self.act2 = nn.ReLU(inplace=True)
+
+        self.fc3 = nn.Linear(256, 128)
+        self.act3 = nn.ReLU(inplace=True)
+
+        self.fc4 = nn.Linear(128, out_c)
+
+    def forward(self, x):
+        x = self.act1(self.fc1(x))
+        x = self.act2(self.fc2(x))
+        x = self.act3(self.fc3(x))
+        x = self.fc4(x)
+
+        return x 
+
+# 构建网络
+net = Net() 
+```
 
 
+### 数据加载及网络输入     
 
-### 全连接层构建
+然后,是数据准备和加载，准备好喂给神经网络的数据。为了简单直观，我们就以MNIST数据集中图像的像素值作为特征进行输入，MNIST图像的维度是28 x 28 x 1=784，所以，直接将28 x 28的像素值展开平铺为 784 x 1的数据输入给输入层。   
+pytorch内置集成了MNIST数据集，只需要几行代码就可加载，关于加载的具体方法下一章节会详细解释。     
 
-### 前向传播和反向传播
+```python
 
-### 损失函数
+# 准备数据集
+# 训练集
+train_set = mnist.MNIST('./data', train=True, transform=transforms.ToTensor(), download=True)
+# 测试集
+test_set = mnist.MNIST('./data', train=False, transform=transforms.ToTensor(), download=True)
+# 训练集载入器
+train_data = DataLoader(train_set, batch_size=64, shuffle=True)
+# 测试集载入器
+test_data = DataLoader(test_set, batch_size=128, shuffle=False) 
+
+# 可视化数据
+import random
+for i in range(4):
+    ax = plt.subplot(2, 2, i+1)
+    idx = random.randint(0, len(train_set))
+    digit_0 = train_set[idx][0].numpy()
+    digit_0_image = digit_0.reshape(28, 28)
+    ax.imshow(digit_0_image, interpolation="nearest")
+    ax.set_title('label: {}'.format(train_set[idx][1]), fontsize=10, color='black')
+plt.show()
+
+```
+### 定义损失函数和优化器
+模型训练是一个监督学习过程，模型学习到的特征和真实特征难免会存在误差，那么为了纠正模型（通过误差反向传播修正权值），就需要一个函数去描述这种误差，这个函数就是损失函数（loss），训练过程就是使损失函数的值越来越小的过程，loss越小，模型就越精确。
+均方误差，大家一定很熟悉，它就是一个不错的loss,不过它的缺点就是优化速度过慢，所以我们使用 交叉熵 作为损失函数，它可以更快收敛。
+
+现在有了模型结构，有了loss,那还需要一个优化算法据误差反传去帮助我们根执行权值修正，这里我们采用随机梯度下降（SGD）,当然也还有其他的，例如Adam等等。
+
+```python
+# 定义损失函数--交叉熵
+criterion = nn.CrossEntropyLoss()
+
+# 定义优化器---随机梯度下降
+optimizer = optim.SGD(net.parameters(), lr=1e-2, weight_decay=5e-4)
+```
+   
+### 开始训练：前向传播和反向传播
+
+好！万事具备，只欠东风，现在就可开始训练了～，设置了20轮训练次数，大家可以修改看看结果有没有什么变化，在这里还需要定义前向传播和反向传播过程哦。
+
+```python
+# 开始训练
+# 记录训练损失
+losses = []
+# 记录训练精度
+acces = []
+# 记录测试损失
+eval_losses = []
+# 记录测试精度
+eval_acces = []
+# 设置迭代次数
+nums_epoch = 20
+for epoch in range(nums_epoch):
+    train_loss = 0
+    train_acc = 0
+    net = net.train()
+    for batch, (img, label) in enumerate(train_data):
+        img = img.reshape(img.size(0), -1)
+        img = Variable(img)
+        label = Variable(label)
+
+        # 前向传播
+        out = net(img)
+        loss = criterion(out, label)
+        # 反向传播
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # 记录误差
+        train_loss += loss.item()
+        # 计算分类的准确率
+        _, pred = out.max(1)
+        num_correct = (pred == label).sum().item()
+        acc = num_correct / img.shape[0]
+
+        if (batch + 1) % 200 ==0:
+            print('[INFO] Epoch-{}-Batch-{}: Train: Loss-{:.4f}, Accuracy-{:.4f}'.format(epoch + 1,
+                                                                                 batch+1,
+                                                                                 loss.item(),
+                                                                                 acc))
+        train_acc += acc
+
+    losses.append(train_loss / len(train_data))
+    acces.append(train_acc / len(train_data))
+
+    eval_loss = 0
+    eval_acc = 0
+    # 测试集不训练
+    for img, label in test_data:
+        img = img.reshape(img.size(0),-1)
+        img = Variable(img)
+        label = Variable(label)
+
+        out = net(img)
+        loss = criterion(out, label)
+        # 记录误差
+        eval_loss += loss.item()
+
+        _, pred = out.max(1)
+        num_correct = (pred == label).sum().item()
+        acc = num_correct / img.shape[0]
+
+        eval_acc += acc
+    eval_losses.append(eval_loss / len(test_data))
+    eval_acces.append(eval_acc / len(test_data))
+
+    print('[INFO] Epoch-{}: Train: Loss-{:.4f}, Accuracy-{:.4f} | Test: Loss-{:.4f}, Accuracy-{:.4f}'.format(
+        epoch + 1, train_loss / len(train_data), train_acc / len(train_data), eval_loss / len(test_data),
+        eval_acc / len(test_data))) 
+
+```
 
 ### 结果可视化
 
+将结果可视化，从图可以看出，测试结果在0.97以上，还是比较低的哈，大家可以修改一下参数看能否有提高呢。
+```python
+
+lt.figure()
+plt.suptitle('Test', fontsize=12)
+ax1 = plt.subplot(1, 2, 1)
+ax1.plot(eval_losses, color='r')
+ax1.plot(losses, color='b')
+ax1.set_title('Loss', fontsize=10, color='black')
+ax2 = plt.subplot(1, 2, 2)
+ax2.plot(eval_acces, color='r')
+ax2.plot(acces, color='b')
+ax2.set_title('Acc', fontsize=10, color='black')
+plt.show()
+
+```
+
 ## 总结 
+到这里，本章的内容就结束啦，这一小节我们主要学习了使用torc如何搭建一个简单的全链接神经网络进行MNIST分类。还有很多细节：如激活函数、损失函数、优化算法以及网络结构它们的选择、公式理论、优缺点等还需要大家深入探究哦。经过本小节的学习，相信对图像分类的基本流程有了一个直观认识，后续章节将会进一步深入探究如何使用深度卷积网络进行图像分类啦。
 
- 对该部分内容进行简要总结。
-
-内容结束
+**内容结束 !**
 
 ---
-**Task01 预备知识 **
 
---- ***By: xxx***
+--- ***By: 小武***
 
 
->可添加个人相关网址：博客、知乎、github等
+>https://blog.csdn.net/weixin_40647819
 
 
 **关于Datawhale**：
